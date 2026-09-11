@@ -451,6 +451,15 @@ pub struct PeerDetailDto {
     pub recent_snapshots: Vec<SnapshotDto>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct PeerPingDto {
+    pub peer_id: i64,
+    pub vpn_ip: String,
+    pub reachable: bool,
+    pub latency_ms: Option<f64>,
+    pub checked_at: DateTime<Utc>,
+}
+
 /// Traffic history response, returned by `GET /api/peers/:id/history`.
 #[derive(Debug, Serialize)]
 pub struct PeerHistoryDto {
@@ -1184,6 +1193,7 @@ pub fn router_with_lifecycle_lock_dir(
         .route("/archived/peers/:id", get(page_archived_peer_detail))
         .route("/api/peers", get(list_peers))
         .route("/api/peers/:id", get(get_peer).patch(patch_peer))
+        .route("/api/peers/:id/ping", get(get_peer_ping))
         .route("/api/peers/:id/history", get(get_peer_history))
         .route("/api/peers/:id/config", get(get_peer_config))
         .route("/api/peers/:id/qr", get(get_peer_qr))
@@ -1489,6 +1499,48 @@ async fn list_events_handler(
 ///
 /// Peers connected through amneziawg-proxy additionally carry the session's
 /// real remote address in `proxy_remote_addr`.
+async fn get_peer_ping(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, ApiError> {
+    let Some(row) = crate::db::peers::find_visible_by_id(&state.db.pool, id).await? else {
+        return Ok((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error":"peer not found"})),
+        )
+            .into_response());
+    };
+    let Some(ip) = peer_vpn_ip(&row.allowed_ips) else {
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"error":"peer has no IPv4 /32"})),
+        )
+            .into_response());
+    };
+    let checked_at = Utc::now();
+    let mut cmd = tokio::process::Command::new("/usr/bin/ping");
+    cmd.env("LC_ALL", "C")
+        .args(["-n", "-c", "1", "-W", "1", ip.as_str()])
+        .kill_on_drop(true);
+    let result = tokio::time::timeout(std::time::Duration::from_millis(1500), cmd.output()).await;
+    let (reachable, latency_ms) = match result {
+        Ok(Ok(out)) if out.status.success() => (
+            true,
+            parse_ping_latency(&String::from_utf8_lossy(&out.stdout)),
+        ),
+        _ => (false, None),
+    };
+    Ok(Json(PeerPingDto {
+        peer_id: id,
+        vpn_ip: ip,
+        reachable,
+        latency_ms,
+        checked_at,
+    })
+    .into_response())
+}
+
+/// `GET /api/peers` – list visible peers with their current stats.
 async fn list_peers(
     State(state): State<AppState>,
     Query(query): Query<ApiPeerListQuery>,
@@ -3659,6 +3711,20 @@ fn fmt_last_handshake(ts: DateTime<Utc>, now: DateTime<Utc>) -> String {
     format!("{} - {}", fmt_time_ago(ts, now), fmt_local_timestamp(ts))
 }
 
+fn peer_ping_script() -> String {
+    r##"<script>(()=>{const u=async e=>{if(e.dataset.busy==="1")return;e.dataset.busy="1";e.disabled=true;e.textContent="Checking…";try{const r=await fetch(e.dataset.pingUrl,{cache:"no-store",headers:{Accept:"application/json"}});if(!r.ok)throw 0;const d=await r.json();if(d.reachable){const m=d.latency_ms==null?"":` ${d.latency_ms<10?d.latency_ms.toFixed(1):Math.round(d.latency_ms)} ms`;e.textContent=`● reachable${m}`;e.style.color="green"}else{e.textContent="○ no reply";e.style.color="#b00020"};e.title=`Last check: ${new Date(d.checked_at).toLocaleString()}`}catch(_){e.textContent="? unknown";e.style.color="gray";e.title="Ping check failed"}finally{e.disabled=false;delete e.dataset.busy}};window.peerPingOne=u;window.peerPingAll=()=>document.querySelectorAll(".peer-ping[data-ping-url]").forEach(u)})();</script>"##.to_string()
+}
+
+fn parse_ping_latency(output: &str) -> Option<f64> {
+    output
+        .split("time=")
+        .nth(1)?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
 fn peer_vpn_ip(allowed_ips: &str) -> Option<String> {
     allowed_ips.split(",").map(str::trim).find_map(|entry| {
         let (address, prefix) = entry.split_once("/")?;
@@ -4134,7 +4200,7 @@ fn render_peer_list_inner(
     } else {
         buf.push_str(
             "<table>\n\
-             <tr><th>Name</th><th>VPN IP</th><th>Connection</th><th>Identity</th><th>Endpoint</th>\
+             <caption><button type=\"button\" onclick=\"peerPingAll()\">Check all peers</button> <span class=\"meta\">Active ping generates VPN traffic</span></caption>\n             <tr><th>Name</th><th>VPN IP</th><th>Reachability</th><th>Connection</th><th>Identity</th><th>Endpoint</th>\
              <th>Comment</th><th>Expiration</th><th>Last handshake</th><th>RX<span class=\"th-hint\">current period</span></th>\
              <th>TX<span class=\"th-hint\">current period</span></th></tr>\n",
         );
@@ -4156,6 +4222,10 @@ fn render_peer_list_inner(
             let vpn_ip = peer_vpn_ip(&p.allowed_ips)
                 .map(|ip| format!("<code>{}</code>", esc(&ip)))
                 .unwrap_or_else(|| "–".to_string());
+            let reachability = format!(
+                "<button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Check</button>",
+                p.id
+            );
             let endpoint =
                 render_endpoint_cell(p.endpoint.as_deref(), p.proxy_remote_addr.as_deref());
             let handshake = p
@@ -4170,9 +4240,10 @@ fn render_peer_list_inner(
                 .unwrap_or_else(|| "–".to_string());
             let expiration = render_expiration_cell(&p.expiration_status, p.expires_at, p.expired);
             buf.push_str(&format!(
-                "<tr><td>{name_link}</td><td>{vpn_ip}</td><td>{conn}</td><td>{ident}</td><td>{endpoint}</td>\
+                "<tr><td>{name_link}</td><td>{vpn_ip}</td><td>{reachability}</td><td>{conn}</td><td>{ident}</td><td>{endpoint}</td>\
                  <td class=\"comment-cell\">{comment}</td><td>{expiration}</td><td>{handshake}</td><td>{rx}</td><td>{tx}</td></tr>\n",
                 vpn_ip = vpn_ip,
+                reachability = reachability,
                 conn = connection_badge(&p.connection_status),
                 ident = identity_badge(&p.identity_status),
                 rx = fmt_bytes(p.rx_bytes),
@@ -4180,6 +4251,7 @@ fn render_peer_list_inner(
             ));
         }
         buf.push_str("</table>\n");
+        buf.push_str(&peer_ping_script());
     }
 
     if let Some(proxy_sessions) = proxy_sessions {
@@ -4409,6 +4481,10 @@ fn render_peer_detail_inner(
         "<tr><th>TX</th><td>{}</td></tr>\n",
         fmt_bytes(dto.tx_bytes)
     ));
+    buf.push_str(&format!(
+        "<tr><th>Reachability</th><td><button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Check</button></td></tr>\n",
+        dto.id
+    ));
     if let Some(vpn_ip) = peer_vpn_ip(&dto.allowed_ips) {
         buf.push_str(&format!(
             "<tr><th>VPN IP</th><td><code>{}</code></td></tr>\n",
@@ -4455,6 +4531,7 @@ fn render_peer_detail_inner(
         render_expiration_cell(&dto.expiration_status, dto.expires_at, dto.expired)
     ));
     buf.push_str("</table>\n");
+    buf.push_str(&peer_ping_script());
 
     // Edit form
     let current_display_name = dto.display_name.as_deref().unwrap_or("");
@@ -6729,6 +6806,19 @@ mod tests {
         assert_eq!(esc("<script>"), "&lt;script&gt;");
         assert_eq!(esc("a&b"), "a&amp;b");
         assert_eq!(esc("\"hello\""), "&quot;hello&quot;");
+    }
+
+    #[test]
+    fn parse_ping_latency_extracts_ms() {
+        assert_eq!(
+            parse_ping_latency("64 bytes from 10.77.77.2: icmp_seq=1 ttl=64 time=64.095 ms"),
+            Some(64.095)
+        );
+        assert_eq!(
+            parse_ping_latency("64 bytes from 10.77.77.1: time=0.088 ms"),
+            Some(0.088)
+        );
+        assert_eq!(parse_ping_latency("Destination Host Unreachable"), None);
     }
 
     #[test]
