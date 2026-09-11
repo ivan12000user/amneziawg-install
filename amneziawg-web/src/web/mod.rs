@@ -3659,6 +3659,19 @@ fn fmt_last_handshake(ts: DateTime<Utc>, now: DateTime<Utc>) -> String {
     format!("{} - {}", fmt_time_ago(ts, now), fmt_local_timestamp(ts))
 }
 
+fn peer_vpn_ip(allowed_ips: &str) -> Option<String> {
+    allowed_ips.split(",").map(str::trim).find_map(|entry| {
+        let (address, prefix) = entry.split_once("/")?;
+        if prefix != "32" {
+            return None;
+        }
+        address
+            .parse::<std::net::Ipv4Addr>()
+            .ok()
+            .map(|ip| ip.to_string())
+    })
+}
+
 fn render_system_status(status: &SystemStatusDto) -> String {
     let uptime = status
         .system_uptime_seconds
@@ -4121,7 +4134,7 @@ fn render_peer_list_inner(
     } else {
         buf.push_str(
             "<table>\n\
-             <tr><th>Name</th><th>Connection</th><th>Identity</th><th>Endpoint</th>\
+             <tr><th>Name</th><th>VPN IP</th><th>Connection</th><th>Identity</th><th>Endpoint</th>\
              <th>Comment</th><th>Expiration</th><th>Last handshake</th><th>RX<span class=\"th-hint\">current period</span></th>\
              <th>TX<span class=\"th-hint\">current period</span></th></tr>\n",
         );
@@ -4140,6 +4153,9 @@ fn render_peer_list_inner(
                 r#"<a href="{detail_href}">{name}</a>{archived_note}"#,
                 name = esc(&p.name),
             );
+            let vpn_ip = peer_vpn_ip(&p.allowed_ips)
+                .map(|ip| format!("<code>{}</code>", esc(&ip)))
+                .unwrap_or_else(|| "–".to_string());
             let endpoint =
                 render_endpoint_cell(p.endpoint.as_deref(), p.proxy_remote_addr.as_deref());
             let handshake = p
@@ -4154,8 +4170,9 @@ fn render_peer_list_inner(
                 .unwrap_or_else(|| "–".to_string());
             let expiration = render_expiration_cell(&p.expiration_status, p.expires_at, p.expired);
             buf.push_str(&format!(
-                "<tr><td>{name_link}</td><td>{conn}</td><td>{ident}</td><td>{endpoint}</td>\
+                "<tr><td>{name_link}</td><td>{vpn_ip}</td><td>{conn}</td><td>{ident}</td><td>{endpoint}</td>\
                  <td class=\"comment-cell\">{comment}</td><td>{expiration}</td><td>{handshake}</td><td>{rx}</td><td>{tx}</td></tr>\n",
+                vpn_ip = vpn_ip,
                 conn = connection_badge(&p.connection_status),
                 ident = identity_badge(&p.identity_status),
                 rx = fmt_bytes(p.rx_bytes),
@@ -4392,6 +4409,12 @@ fn render_peer_detail_inner(
         "<tr><th>TX</th><td>{}</td></tr>\n",
         fmt_bytes(dto.tx_bytes)
     ));
+    if let Some(vpn_ip) = peer_vpn_ip(&dto.allowed_ips) {
+        buf.push_str(&format!(
+            "<tr><th>VPN IP</th><td><code>{}</code></td></tr>\n",
+            esc(&vpn_ip)
+        ));
+    }
     buf.push_str(&format!(
         "<tr><th>Server peer AllowedIPs</th><td>{}</td></tr>\n",
         esc(&dto.allowed_ips)
@@ -6706,6 +6729,24 @@ mod tests {
         assert_eq!(esc("<script>"), "&lt;script&gt;");
         assert_eq!(esc("a&b"), "a&amp;b");
         assert_eq!(esc("\"hello\""), "&quot;hello&quot;");
+    }
+
+    #[test]
+    fn peer_vpn_ip_extracts_ipv4() {
+        assert_eq!(peer_vpn_ip("10.77.77.2/32"), Some("10.77.77.2".to_string()));
+    }
+
+    #[test]
+    fn peer_vpn_ip_extracts_ipv4_from_dual_stack() {
+        assert_eq!(
+            peer_vpn_ip("10.77.77.15/32, fd42:42:42::15/128"),
+            Some("10.77.77.15".to_string())
+        );
+    }
+
+    #[test]
+    fn peer_vpn_ip_ignores_non_host_network() {
+        assert_eq!(peer_vpn_ip("10.77.77.0/24"), None);
     }
 
     #[test]
