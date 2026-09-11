@@ -1152,10 +1152,16 @@ mod tests {
         .expect("seed expired peer");
 
         let state_dir = tempfile::tempdir().expect("state tempdir");
-        let missing_config_dir = state_dir.path().join("missing-clients");
+
+        // Use an invalid config path that fails deterministically before any
+        // privileged AWG operation.  A missing directory is intentionally
+        // accepted by resumable removal and therefore no longer represents
+        // a retry failure.
+        let invalid_config_path = tempfile::NamedTempFile::new().expect("invalid config path");
+
         for _ in 0..2 {
             assert_eq!(
-                cleanup_expired_users(&db, &missing_config_dir, state_dir.path())
+                cleanup_expired_users(&db, invalid_config_path.path(), state_dir.path(),)
                     .await
                     .expect("cleanup pass"),
                 0
