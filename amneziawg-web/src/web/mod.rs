@@ -99,7 +99,7 @@ const MAX_REASONABLE_UPTIME_SECS: f64 = 3_153_600_000.0; // 100 years
 const PROXY_STATUS_STALE_AFTER_SECS: i64 = 30;
 const MAX_EXPIRATION_DAYS: i64 = 36_500; // 100 years
 const STATISTICS_COUNTER_NOTE: &str =
-    "Traffic counters below are live interface counters since the last system boot or interface restart.";
+    "Счётчики трафика показывают данные с момента загрузки системы или перезапуска интерфейса.";
 
 impl AppState {
     fn new(
@@ -376,7 +376,7 @@ pub struct PeerSummaryDto {
     pub archived: bool,
     /// UTC removal deadline. `None` means this peer is permanent.
     pub expires_at: Option<DateTime<Utc>>,
-    /// Human-readable status such as "Never expires" or "Expires in 6 days".
+    /// Human-readable status such as "Бессрочно" or "Осталось 6 дн".
     pub expiration_status: String,
     pub expired: bool,
     /// Comma-separated list of allowed CIDRs.
@@ -638,7 +638,7 @@ pub struct AddUserForm {
     pub expiration_days: Option<String>,
 }
 
-/// Confirmation form for an interface-wide AWG protocol migration.
+/// Подтверждение form for an interface-wide AWG protocol migration.
 #[derive(Debug, Deserialize)]
 pub struct ProtocolChangeForm {
     pub csrf_token: Option<String>,
@@ -669,21 +669,21 @@ struct ApiPeerListQuery {
 #[derive(Debug, Deserialize)]
 pub struct RemoveUserForm {
     pub csrf_token: Option<String>,
-    /// Confirmation field – must be "yes" to proceed.
+    /// Подтверждение field – must be "yes" to proceed.
     pub confirm: Option<String>,
 }
 
 /// HTML form body for purging and archiving an unmanaged peer record.
 #[derive(Debug, Deserialize)]
-pub struct ArchivePeerForm {
+pub struct АрхивироватьPeerForm {
     pub csrf_token: Option<String>,
-    /// Confirmation field – must be "yes" to perform the irreversible purge.
+    /// Подтверждение field – must be "yes" to perform the irreversible purge.
     pub confirm: Option<String>,
 }
 
 /// HTML form body for returning an archived tombstone to the normal list.
 #[derive(Debug, Deserialize)]
-pub struct RestorePeerForm {
+pub struct ВосстановитьPeerForm {
     pub csrf_token: Option<String>,
 }
 
@@ -746,40 +746,24 @@ fn managed_client_name_for_lifecycle(row: &PeerRow) -> Option<&str> {
 
 fn format_expiration_status(expires_at: Option<DateTime<Utc>>, now: DateTime<Utc>) -> String {
     let Some(expires_at) = expires_at else {
-        return "Never expires".to_string();
+        return "Бессрочно".to_string();
     };
     let seconds = expires_at.signed_duration_since(now).num_seconds();
     if seconds <= 0 {
-        return "Expired".to_string();
+        return "Истёк".to_string();
     }
-
     if seconds < 3_600 {
-        let minutes = (seconds + 59) / 60;
-        return format!(
-            "Expires in {minutes} minute{}",
-            if minutes == 1 { "" } else { "s" }
-        );
+        return format!("Осталось {} мин", (seconds + 59) / 60);
     }
     if seconds < 86_400 {
-        let hours = (seconds + 3_599) / 3_600;
-        return format!(
-            "Expires in {hours} hour{}",
-            if hours == 1 { "" } else { "s" }
-        );
+        return format!("Осталось {} ч", (seconds + 3_599) / 3_600);
     }
-
     let days = (seconds + 86_399) / 86_400;
     if days <= 30 {
-        return format!("Expires in {days} day{}", if days == 1 { "" } else { "s" });
+        return format!("Осталось {days} дн");
     }
-
-    format!(
-        "Expires on {} {}",
-        expires_at.day(),
-        expires_at.format("%b %Y")
-    )
+    format!("До {}", expires_at.format("%d.%m.%Y"))
 }
-
 fn unix_millis_to_utc(ts: u64) -> Option<DateTime<Utc>> {
     let seconds = i64::try_from(ts / 1000).ok()?;
     let nanos = ((ts % 1000) as u32) * 1_000_000;
@@ -2449,7 +2433,7 @@ async fn page_archived_peer_detail(
         }
         _ => Ok((
             StatusCode::NOT_FOUND,
-            Html("<h1>Archived peer not found</h1>".to_string()),
+            Html("<h1>Архивный пир не найден</h1>".to_string()),
         )
             .into_response()),
     }
@@ -2461,7 +2445,7 @@ async fn post_archive_peer_form(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
-    Form(form): Form<ArchivePeerForm>,
+    Form(form): Form<АрхивироватьPeerForm>,
 ) -> Result<Response, ApiError> {
     if state.auth.enabled {
         let cookie_header = headers
@@ -2527,7 +2511,7 @@ async fn post_restore_peer_form(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     Path(id): Path<i64>,
-    Form(form): Form<RestorePeerForm>,
+    Form(form): Form<ВосстановитьPeerForm>,
 ) -> Result<Response, ApiError> {
     if state.auth.enabled {
         let cookie_header = headers
@@ -2793,7 +2777,7 @@ fn create_user_notice_message(code: &str) -> Option<&'static str> {
 fn peer_archive_notice_message(code: &str) -> Option<&'static str> {
     match code {
         PEER_NOTICE_ARCHIVED => Some(
-            "Old peer metadata and traffic history were deleted from the panel. Its disabled public key is available under Archived keys.",
+            "Старые данные пира и история трафика удалены из панели. Отключённый публичный ключ доступен в архиве.",
         ),
         _ => None,
     }
@@ -2853,7 +2837,7 @@ async fn post_protocol_change(
     if form.confirm.as_deref() != Some("yes") {
         return Ok((
             StatusCode::BAD_REQUEST,
-            "Confirm that all client configurations will be replaced.",
+            "Подтвердить that all client configurations will be replaced.",
         )
             .into_response());
     }
@@ -3331,7 +3315,7 @@ async fn post_remove_user_form(
         let mut dto = peer_row_to_detail(peer, snapshots);
         annotate_peer_detail_with_proxy_remote(&mut dto, &proxy_sessions_status(&state).await);
         let csrf = session_csrf_from_headers(&state, &headers);
-        let message = format!("Remove failed: peer is not managed by installer: {e}");
+        let message = format!("Удаление невозможно: пир не управляется установщиком: {e}");
         return Ok(Html(render_peer_detail_with_error(
             &dto, &csrf, &events, &message,
         ))
@@ -3355,11 +3339,11 @@ async fn post_remove_user_form(
         Err(e) => {
             let message: &str = match &e {
                 crate::admin::client_manager::RemoveClientError::LockBusy => {
-                    "Remove failed: another add/remove operation is already in progress; please try again later."
+                    "Удаление невозможно: уже выполняется другая операция добавления или удаления. Повторите позже."
                 }
                 _ => {
                     tracing::error!(error = %e, "failed to remove user via HTML form");
-                    "Remove failed: internal server error."
+                    "Удаление невозможно: внутренняя ошибка сервера."
                 }
             };
             // Re-fetch peer data to render the detail page with the error banner.
@@ -3617,29 +3601,29 @@ fn esc_js(s: &str) -> String {
 #[allow(dead_code)]
 fn status_badge(status: &PeerStatus) -> &'static str {
     match status {
-        PeerStatus::Online => r#"<span style="color:green">&#x25CF; online</span>"#,
-        PeerStatus::Inactive => r#"<span style="color:gray">&#x25CF; inactive</span>"#,
-        PeerStatus::Disabled => r#"<span style="color:red">&#x25CF; disabled</span>"#,
+        PeerStatus::Online => r#"<span style="color:green">&#x25CF; в сети</span>"#,
+        PeerStatus::Inactive => r#"<span style="color:gray">&#x25CF; неактивен</span>"#,
+        PeerStatus::Disabled => r#"<span style="color:red">&#x25CF; отключён</span>"#,
         PeerStatus::Unlinked => r#"<span style="color:orange">&#x25CF; unlinked</span>"#,
     }
 }
 
 fn connection_badge(status: &ConnectionStatus) -> &'static str {
     match status {
-        ConnectionStatus::Online => r#"<span style="color:green">&#x25CF; online</span>"#,
-        ConnectionStatus::Inactive => r#"<span style="color:gray">&#x25CF; inactive</span>"#,
-        ConnectionStatus::Never => r#"<span style="color:gray">&#x25CB; never connected</span>"#,
-        ConnectionStatus::Disabled => r#"<span style="color:red">&#x25CF; disabled</span>"#,
+        ConnectionStatus::Online => r#"<span style="color:green">&#x25CF; в сети</span>"#,
+        ConnectionStatus::Inactive => r#"<span style="color:gray">&#x25CF; неактивен</span>"#,
+        ConnectionStatus::Never => r#"<span style="color:gray">&#x25CB; не подключался</span>"#,
+        ConnectionStatus::Disabled => r#"<span style="color:red">&#x25CF; отключён</span>"#,
     }
 }
 
 fn identity_badge(status: &IdentityStatus) -> &'static str {
     match status {
         IdentityStatus::Linked => {
-            r#"<span style="color:#0a0" title="Peer matched to a config file">&#x1F517; linked</span>"#
+            r#"<span style="color:#0a0" title="Пир связан с файлом конфигурации">&#x1F517; связан</span>"#
         }
         IdentityStatus::Unlinked => {
-            r#"<span style="color:orange" title="No matching config file found">&#x26A0; unlinked</span>"#
+            r#"<span style="color:orange" title="Файл конфигурации не найден">&#x26A0; не связан</span>"#
         }
     }
 }
@@ -3664,15 +3648,12 @@ fn fmt_duration_hms(total_secs: u64) -> String {
     let hours = (total_secs % 86_400) / 3_600;
     let minutes = (total_secs % 3_600) / 60;
     let seconds = total_secs % 60;
-
     if days > 0 {
-        let day_label = if days == 1 { "day" } else { "days" };
-        format!("{days} {day_label} {hours:02}:{minutes:02}:{seconds:02}")
+        format!("{days} д {hours:02}:{minutes:02}:{seconds:02}")
     } else {
         format!("{hours:02}:{minutes:02}:{seconds:02}")
     }
 }
-
 fn fmt_local_timestamp(ts: DateTime<Utc>) -> String {
     let local = ts.with_timezone(&Local);
     if local.offset().local_minus_utc() == 0 {
@@ -3689,30 +3670,26 @@ fn fmt_optional_local_timestamp(ts: Option<DateTime<Utc>>, fallback: &str) -> St
 
 fn fmt_time_ago(ts: DateTime<Utc>, now: DateTime<Utc>) -> String {
     let Ok(age) = now.signed_duration_since(ts).to_std() else {
-        return "in the future".to_string();
+        return "в будущем".to_string();
     };
     let secs = age.as_secs();
     if secs < 60 {
-        return "just now".to_string();
+        return "только что".to_string();
     }
-
-    let (value, unit) = if secs < 3_600 {
-        (secs / 60, "minute")
+    if secs < 3_600 {
+        format!("{} мин назад", secs / 60)
     } else if secs < 86_400 {
-        (secs / 3_600, "hour")
+        format!("{} ч назад", secs / 3_600)
     } else {
-        (secs / 86_400, "day")
-    };
-    let suffix = if value == 1 { "" } else { "s" };
-    format!("{value} {unit}{suffix} ago")
+        format!("{} дн назад", secs / 86_400)
+    }
 }
-
 fn fmt_last_handshake(ts: DateTime<Utc>, now: DateTime<Utc>) -> String {
     format!("{} - {}", fmt_time_ago(ts, now), fmt_local_timestamp(ts))
 }
 
 fn peer_ping_script() -> String {
-    r##"<script>(()=>{const u=async e=>{if(e.dataset.busy==="1")return;e.dataset.busy="1";e.disabled=true;e.textContent="Checking…";try{const r=await fetch(e.dataset.pingUrl,{cache:"no-store",headers:{Accept:"application/json"}});if(!r.ok)throw 0;const d=await r.json();if(d.reachable){const m=d.latency_ms==null?"":` ${d.latency_ms<10?d.latency_ms.toFixed(1):Math.round(d.latency_ms)} ms`;e.textContent=`● reachable${m}`;e.style.color="green"}else{e.textContent="○ no reply";e.style.color="#b00020"};e.title=`Last check: ${new Date(d.checked_at).toLocaleString()}`}catch(_){e.textContent="? unknown";e.style.color="gray";e.title="Ping check failed"}finally{e.disabled=false;delete e.dataset.busy}};window.peerPingOne=u;window.peerPingAll=()=>document.querySelectorAll(".peer-ping[data-ping-url]").forEach(u)})();</script>"##.to_string()
+    r##"<script>(()=>{const u=async e=>{if(e.dataset.busy==="1")return;e.dataset.busy="1";e.disabled=true;e.textContent="Проверка…";try{const r=await fetch(e.dataset.pingUrl,{cache:"no-store",headers:{Accept:"application/json"}});if(!r.ok)throw 0;const d=await r.json();if(d.reachable){const m=d.latency_ms==null?"":` ${d.latency_ms<10?d.latency_ms.toFixed(1):Math.round(d.latency_ms)} ms`;e.textContent=`● доступен${m}`;e.style.color="green"}else{e.textContent="○ нет ответа";e.style.color="#b00020"};e.title=`Последняя проверка: ${new Date(d.checked_at).toLocaleString()}`}catch(_){e.textContent="? неизвестно";e.style.color="gray";e.title="Ошибка проверки"}finally{e.disabled=false;delete e.dataset.busy}};window.peerPingOne=u;window.peerPingAll=()=>document.querySelectorAll(".peer-ping[data-ping-url]").forEach(u)})();</script>"##.to_string()
 }
 
 fn parse_ping_latency(output: &str) -> Option<f64> {
@@ -3745,10 +3722,10 @@ fn render_system_status(status: &SystemStatusDto) -> String {
         .unwrap_or_else(|| "unknown".to_string());
     let booted_at = fmt_optional_local_timestamp(status.system_booted_at, "unknown");
     format!(
-        r#"<section class="system-status" aria-label="System status">
+        r#"<section class="system-status" aria-label="Состояние системы">
   <div class="system-status-grid">
-    <div><span class="status-label">System uptime:</span> {uptime}</div>
-    <div><span class="status-label">System boot time:</span> {booted_at}</div>
+    <div><span class="status-label">Время работы системы:</span> {uptime}</div>
+    <div><span class="status-label">Время загрузки системы:</span> {booted_at}</div>
   </div>
   <p class="meta">{note}</p>
 </section>
@@ -3766,11 +3743,11 @@ fn render_proxy_sessions(status: &ProxySessionsDto) -> String {
 
     let mut buf = String::new();
     buf.push_str("<section class=\"proxy-sessions\" aria-label=\"Proxy sessions\">\n");
-    buf.push_str("<h2>Active proxy sessions</h2>\n");
+    buf.push_str("<h2>Активные прокси-сессии</h2>\n");
 
     if let Some(error) = &status.error {
         buf.push_str(&format!(
-            "<p class=\"meta warning\">Proxy session status unavailable: {}</p>\n",
+            "<p class=\"meta warning\">Статус прокси-сессий недоступен: {}</p>\n",
             esc(error)
         ));
         buf.push_str("</section>\n");
@@ -3812,12 +3789,12 @@ fn render_proxy_sessions(status: &ProxySessionsDto) -> String {
     ));
 
     if status.sessions.is_empty() {
-        buf.push_str("<p class=\"meta\">No active proxy sessions reported.</p>\n");
+        buf.push_str("<p class=\"meta\">Активные прокси-сессии отсутствуют.</p>\n");
     } else {
         buf.push_str(
             "<table class=\"proxy-session-table\">\n\
-             <tr><th>User</th><th>Remote client</th><th>Proxy port</th><th>Target port</th>\
-             <th>Protocol</th><th>Last activity</th><th>RX</th><th>TX</th></tr>\n",
+             <tr><th>Пользователь</th><th>Удалённый клиент</th><th>Порт прокси</th><th>Целевой порт</th>\
+             <th>Протокол</th><th>Последняя активность</th><th>RX</th><th>TX</th></tr>\n",
         );
         for session in &status.sessions {
             let user = match (session.peer_id, session.peer_name.as_deref()) {
@@ -3831,7 +3808,7 @@ fn render_proxy_sessions(status: &ProxySessionsDto) -> String {
                 .last_activity_at
                 .map(|ts| {
                     format!(
-                        "{} ago - {}",
+                        "{} назад - {}",
                         fmt_duration_hms(session.last_activity_ms_ago / 1000),
                         fmt_local_timestamp(ts)
                     )
@@ -3865,10 +3842,17 @@ fn render_proxy_sessions(status: &ProxySessionsDto) -> String {
 fn html_head(title: &str) -> String {
     format!(
         r#"<!DOCTYPE html>
-<html lang="en">
+<html lang="ru">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+(function() {{
+  var t = localStorage.getItem('awg-theme');
+  if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  document.documentElement.dataset.theme = t;
+}})();
+</script>
 <title>{title}</title>
 <style>
   body {{ font-family: sans-serif; margin: 2rem; color: #222; }}
@@ -3922,6 +3906,30 @@ fn html_head(title: &str) -> String {
   .qr-modal-close:hover {{ color:#222; }}
   .qr-link {{ cursor:pointer; background:none; border:none; color:#0066cc; font:inherit; padding:0; text-decoration:none; }}
   .qr-link:hover {{ text-decoration:underline; }}
+  .theme-toggle {{ padding:.3rem .7rem; border:1px solid #aaa; border-radius:4px; cursor:pointer; }}
+  .peer-ping {{ cursor:pointer; border:1px solid #bbb; border-radius:4px; padding:.15rem .45rem; }}
+  html[data-theme="dark"] body {{ background:#0f172a; color:#e5e7eb; }}
+  html[data-theme="dark"] th {{ background:#1e293b; }}
+  html[data-theme="dark"] tr:nth-child(even) {{ background:#111827; }}
+  html[data-theme="dark"] th,
+  html[data-theme="dark"] td {{ border-color:#334155; }}
+  html[data-theme="dark"] a,
+  html[data-theme="dark"] .qr-link {{ color:#60a5fa; }}
+  html[data-theme="dark"] .meta,
+  html[data-theme="dark"] .versions,
+  html[data-theme="dark"] .th-hint {{ color:#94a3b8; }}
+  html[data-theme="dark"] .system-status,
+  html[data-theme="dark"] .edit-form {{ background:#172033; border-color:#334155; }}
+  html[data-theme="dark"] input,
+  html[data-theme="dark"] textarea,
+  html[data-theme="dark"] select {{ background:#0f172a; color:#e5e7eb; border-color:#475569; }}
+  html[data-theme="dark"] .counter-scope,
+  html[data-theme="dark"] .proxy-hint {{ background:#1e293b; color:#cbd5e1; border-color:#475569; }}
+  html[data-theme="dark"] .creation-warning {{ background:#3b2f12; color:#fde68a; border-color:#92400e; }}
+  html[data-theme="dark"] .qr-modal {{ background:#172033; color:#e5e7eb; }}
+  html[data-theme="dark"] .nav {{ border-color:#334155; }}
+  html[data-theme="dark"] .theme-toggle,
+  html[data-theme="dark"] .peer-ping {{ background:#1e293b; color:#e5e7eb; border-color:#475569; }}
 </style>
 </head>
 <body>
@@ -3936,22 +3944,40 @@ fn html_head(title: &str) -> String {
 fn nav_bar(csrf_token: &str) -> String {
     format!(
         r#"<nav class="nav">
-  <span class="nav-brand"><a href="/">AmneziaWG Panel</a><span id="system-versions" class="versions">AWG: checking &nbsp;·&nbsp; Web: {web_version} &nbsp;·&nbsp; Proxy: checking</span></span>
+  <span class="nav-brand"><a href="/">AmneziaWG Panel</a><span id="system-versions" class="versions">AWG: проверка &nbsp;·&nbsp; Web: {web_version} &nbsp;·&nbsp; Proxy: проверка</span></span>
+  <button type="button" id="theme-toggle" class="theme-toggle"
+    onclick="toggleAwgTheme()">Тёмная тема</button>
   <form class="nav-logout" method="POST" action="/logout">
     <input type="hidden" name="csrf_token" value="{csrf}">
-    <button type="submit">Log out</button>
+    <button type="submit">Выход</button>
   </form>
 </nav>
+<script>
+(function() {{
+  var btn = document.getElementById('theme-toggle');
+  function updateThemeButton() {{
+    if (btn) btn.textContent =
+      document.documentElement.dataset.theme === 'dark' ? 'Светлая тема' : 'Тёмная тема';
+  }}
+  window.toggleAwgTheme = function() {{
+    var t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = t;
+    localStorage.setItem('awg-theme', t);
+    updateThemeButton();
+  }};
+  updateThemeButton();
+}})();
+</script>
 <script>
 (function() {{
   var el = document.getElementById('system-versions');
   if (!el || !window.fetch) return;
 
   function text(label, item) {{
-    if (!item) return label + ': unknown';
+    if (!item) return label + ': неизвестно';
     if (item.version) return label + ': ' + item.version;
-    if (item.status === 'not_installed') return label + ': not installed';
-    return label + ': unknown';
+    if (item.status === 'not_installed') return label + ': не установлен';
+    return label + ': неизвестно';
   }}
 
   fetch('/api/system/versions', {{ credentials: 'same-origin' }})
@@ -3967,7 +3993,7 @@ fn nav_bar(csrf_token: &str) -> String {
       ].join(' · ');
     }})
     .catch(function() {{
-      el.textContent = 'AWG: unknown · Web: {web_version} · Proxy: unknown';
+      el.textContent = 'AWG: неизвестно · Web: {web_version} · Proxy: неизвестно';
     }});
 }})();
 </script>
@@ -3983,7 +4009,7 @@ fn nav_bar(csrf_token: &str) -> String {
 /// `csrf_token`: the pre-login CSRF token to embed in the form.
 fn render_login_page(show_error: bool, csrf_token: &str) -> String {
     let error_html = if show_error {
-        "  <p class=\"error\">Invalid username or password.</p>\n"
+        "  <p class=\"error\">Неверное имя пользователя или пароль.</p>\n"
     } else {
         ""
     };
@@ -3997,17 +4023,17 @@ fn render_login_page_with_msg(msg: &str, csrf_token: &str) -> String {
 }
 
 fn render_login_page_inner(error_html: &str, csrf_token: &str) -> String {
-    let mut buf = html_head("AmneziaWG – Login");
+    let mut buf = html_head("AmneziaWG — Вход");
     buf.push_str(&format!(
         r#"<div class="edit-form" style="max-width:340px;margin:4rem auto">
-<h2>AmneziaWG Login</h2>
+<h2>Вход в AmneziaWG</h2>
 <form method="POST" action="/login">
   <input type="hidden" name="csrf_token" value="{csrf}">
-  <label for="username">Username</label>
+  <label for="username">Имя пользователя</label>
   <input type="text" id="username" name="username" autocomplete="username" required>
-  <label for="password">Password</label>
+  <label for="password">Пароль</label>
   <input type="password" id="password" name="password" autocomplete="current-password" required>
-{error}  <button type="submit">Log in</button>
+{error}  <button type="submit">Войти</button>
 </form>
 </div>
 </body></html>
@@ -4099,14 +4125,14 @@ fn render_peer_list_with_error(
 fn render_protocol_controls(csrf_token: &str) -> String {
     format!(
         r#"<details class="edit-form protocol-panel">
-<summary>AWG protocol</summary>
-<p id="protocol-current" class="meta" role="status">Current mode: loading…</p>
+<summary>Протокол AWG</summary>
+<p id="protocol-current" class="meta" role="status">Текущий режим: загрузка…</p>
 <section id="protocol-enable-awg3">
   <p class="creation-warning"><strong>AWG 3.0 is not compatible with AWG 2.0 clients on the same interface.</strong> The server first probes kernel support, then atomically updates the server and every recoverable client config.</p>
   <form method="POST" action="/admin/protocol/enable-awg3">
     <input type="hidden" name="csrf_token" value="{csrf}">
     <label><input type="checkbox" name="confirm" value="yes" required> I will redistribute every regenerated client config.</label>
-    <button type="submit">Enable AWG 3.0</button>
+    <button type="submit">Включить AWG 3.0</button>
   </form>
 </section>
 <section id="protocol-enable-awg31">
@@ -4114,7 +4140,7 @@ fn render_protocol_controls(csrf_token: &str) -> String {
   <form method="POST" action="/admin/protocol/enable-awg31">
     <input type="hidden" name="csrf_token" value="{csrf}">
     <label><input type="checkbox" name="confirm" value="yes" required> I will redistribute every regenerated client config.</label>
-    <button type="submit">Enable AWG 3.1</button>
+    <button type="submit">Включить AWG 3.1</button>
   </form>
 </section>
 <section id="protocol-disable-awg3">
@@ -4122,7 +4148,7 @@ fn render_protocol_controls(csrf_token: &str) -> String {
   <form method="POST" action="/admin/protocol/disable-awg3">
     <input type="hidden" name="csrf_token" value="{csrf}">
     <label><input type="checkbox" name="confirm" value="yes" required> I will redistribute every regenerated client config.</label>
-    <button type="submit">Return to AWG 2.0</button>
+    <button type="submit">Вернуться к AWG 2.0</button>
   </form>
 </section>
 </details>
@@ -4138,17 +4164,17 @@ fn render_protocol_controls(csrf_token: &str) -> String {
       return response.json();
     }})
     .then(function(data) {{
-      current.textContent = 'Current mode: AWG ' + data.version;
+      current.textContent = 'Текущий режим: AWG ' + data.version;
       enable3.hidden = data.version === '3.0';
       enable31.hidden = data.version === '3.1';
       disable.hidden = data.version === '2.0';
       var enable3Btn = enable3.querySelector('button[type="submit"]');
       if (enable3Btn) {{
-        enable3Btn.textContent = data.version === '3.1' ? 'Switch to AWG 3.0' : 'Enable AWG 3.0';
+        enable3Btn.textContent = data.version === '3.1' ? 'Switch to AWG 3.0' : 'Включить AWG 3.0';
       }}
     }})
     .catch(function() {{
-      current.textContent = 'Current mode unavailable. No change occurs until a confirmed action succeeds.';
+      current.textContent = 'Текущий режим недоступен. Изменения не выполняются до успешного подтверждённого действия.';
     }});
 }})();
 </script>
@@ -4166,15 +4192,15 @@ fn render_peer_list_inner(
     error: Option<&str>,
     show_archived: bool,
 ) -> String {
-    let mut buf = html_head("AmneziaWG – Peers");
+    let mut buf = html_head("AmneziaWG — Пиры");
     let now = Utc::now();
     buf.push_str(&nav_bar(csrf_token));
-    buf.push_str("<h1>AmneziaWG Peers</h1>\n");
+    buf.push_str("<h1>Пиры AmneziaWG</h1>\n");
     buf.push_str(&render_system_status(system_status));
     let archive_toggle = if show_archived {
-        r#"<a href="/">Hide archived keys</a>"#
+        r#"<a href="/">Скрыть архивные ключи</a>"#
     } else {
-        r#"<a href="/?show_archived=true">Show archived keys</a>"#
+        r#"<a href="/?show_archived=true">Показать архивные ключи</a>"#
     };
     let api_href = if show_archived {
         "/api/peers?include_archived=true"
@@ -4182,9 +4208,9 @@ fn render_peer_list_inner(
         "/api/peers"
     };
     buf.push_str(&format!(
-        "<p class=\"meta\">{} peer(s) known &nbsp;·&nbsp; <a href=\"{api_href}\">JSON API</a>\
+        "<p class=\"meta\">{} пиров &nbsp;·&nbsp; <a href=\"{api_href}\">JSON API</a>\
          &nbsp;·&nbsp; {archive_toggle}\
-         <span class=\"counter-scope\">Traffic period: since boot/interface restart</span></p>\n",
+         <span class=\"counter-scope\">Трафик: с загрузки/перезапуска интерфейса</span></p>\n",
         peers.len()
     ));
     if let Some(notice) = notice {
@@ -4196,13 +4222,13 @@ fn render_peer_list_inner(
     buf.push_str(&render_protocol_controls(csrf_token));
 
     if peers.is_empty() {
-        buf.push_str("<p>No peers found. The poller may not have run yet.</p>\n");
+        buf.push_str("<p>Пиры не найдены. Возможно, опрос ещё не выполнялся.</p>\n");
     } else {
         buf.push_str(
             "<table>\n\
-             <caption><button type=\"button\" onclick=\"peerPingAll()\">Check all peers</button> <span class=\"meta\">Active ping generates VPN traffic</span></caption>\n             <tr><th>Name</th><th>VPN IP</th><th>Reachability</th><th>Connection</th><th>Identity</th><th>Endpoint</th>\
-             <th>Comment</th><th>Expiration</th><th>Last handshake</th><th>RX<span class=\"th-hint\">current period</span></th>\
-             <th>TX<span class=\"th-hint\">current period</span></th></tr>\n",
+             <caption><button type=\"button\" onclick=\"peerPingAll()\">Проверить все</button> <span class=\"meta\">Проверка создаёт VPN-трафик</span></caption>\n             <tr><th>Имя</th><th>VPN IP</th><th>Доступность</th><th>Соединение</th><th>Привязка</th><th>Endpoint</th>\
+             <th>Комментарий</th><th>Срок действия</th><th>Последний handshake</th><th>RX<span class=\"th-hint\">текущий период</span></th>\
+             <th>TX<span class=\"th-hint\">текущий период</span></th></tr>\n",
         );
         for p in peers {
             let detail_href = if p.archived {
@@ -4211,7 +4237,7 @@ fn render_peer_list_inner(
                 format!("/peers/{}", p.id)
             };
             let archived_note = if p.archived {
-                r#" <span class="warning">archived</span>"#
+                r#" <span class="warning">в архиве</span>"#
             } else {
                 ""
             };
@@ -4223,7 +4249,7 @@ fn render_peer_list_inner(
                 .map(|ip| format!("<code>{}</code>", esc(&ip)))
                 .unwrap_or_else(|| "–".to_string());
             let reachability = format!(
-                "<button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Check</button>",
+                "<button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Проверить</button>",
                 p.id
             );
             let endpoint =
@@ -4260,43 +4286,48 @@ fn render_peer_list_inner(
 
     let add_user_open = if error.is_some() { " open" } else { "" };
     let add_user_error = error
-        .map(|err| format!("<p class=\"error\">Add user failed: {}</p>\n", esc(err)))
+        .map(|err| {
+            format!(
+                "<p class=\"error\">Не удалось добавить пользователя: {}</p>\n",
+                esc(err)
+            )
+        })
         .unwrap_or_default();
     buf.push_str(&format!(
         r#"<details class="edit-form add-user-panel"{open}>
-<summary>Add user</summary>
+<summary>Добавить пользователя</summary>
 {error}
 <form method="POST" action="/admin/users/add">
   <input type="hidden" name="csrf_token" value="{csrf}">
-  <label for="add_user_name">Client name</label>
+  <label for="add_user_name">Имя клиента</label>
   <input type="text" id="add_user_name" name="name" required
          pattern="[a-zA-Z0-9_-]+" maxlength="15"
          placeholder="e.g. iphone" title="Alphanumeric, underscore, or hyphen (max 15 chars)">
-  <p class="meta" style="margin-top:.25rem">Letters, digits, underscore, or hyphen. Max 15 characters.</p>
-  <label for="add_user_ipv4">IPv4 address <span class="meta">(optional)</span></label>
+  <p class="meta" style="margin-top:.25rem">Латинские буквы, цифры, подчёркивание или дефис. Не более 15 символов.</p>
+  <label for="add_user_ipv4">IPv4-адрес <span class="meta">(необязательно)</span></label>
   <input type="text" id="add_user_ipv4" name="ipv4_address"
          placeholder="loading…" title="Full IPv4 address for this client">
-  <p class="meta" style="margin-top:.25rem">Full IPv4 address. Pre-filled with the next available address; edit as needed.</p>
-  <label for="add_user_ipv6">IPv6 address <span class="meta">(optional)</span></label>
+  <p class="meta" style="margin-top:.25rem">Полный IPv4-адрес. Подставляется следующий свободный адрес.</p>
+  <label for="add_user_ipv6">IPv6-адрес <span class="meta">(необязательно)</span></label>
   <input type="text" id="add_user_ipv6" name="ipv6_address"
          placeholder="loading…" title="Full IPv6 address for this client">
-  <p class="meta" style="margin-top:.25rem">Full IPv6 address. Pre-filled with the next available address; edit as needed.</p>
-  <label for="add_user_comment">Comment <span class="meta">(optional)</span></label>
+  <p class="meta" style="margin-top:.25rem">Полный IPv6-адрес. Подставляется следующий свободный адрес.</p>
+  <label for="add_user_comment">Комментарий <span class="meta">(необязательно)</span></label>
   <textarea id="add_user_comment" name="comment" maxlength="512"
             placeholder="e.g. Primary phone"></textarea>
-  <label for="add_user_expiration_days">Lifetime in days</label>
+  <label for="add_user_expiration_days">Срок действия, дней</label>
   <input type="number" id="add_user_expiration_days" name="expiration_days"
          value="0" min="0" max="36500" step="1" list="expiration_lifetime_presets">
   <datalist id="expiration_lifetime_presets">
-    <option value="0" label="Never expires"></option>
+    <option value="0" label="Бессрочно"></option>
     <option value="1" label="1 day"></option>
     <option value="7" label="7 days"></option>
     <option value="30" label="30 days"></option>
     <option value="90" label="90 days"></option>
     <option value="365" label="1 year"></option>
   </datalist>
-  <p class="meta" style="margin-top:.25rem">Use 0 for no expiration, or enter any lifetime up to 36500 days.</p>
-  <button type="submit">Add user</button>
+  <p class="meta" style="margin-top:.25rem">0 — бессрочно; либо укажите срок до 36500 дней.</p>
+  <button type="submit">Добавить пользователя</button>
 </form>
 </details>
 <script>
@@ -4352,17 +4383,17 @@ fn render_archived_peer_detail(
     csrf_token: &str,
     events: &[crate::db::events::EventRow],
 ) -> String {
-    let mut buf = html_head("Archived disabled key");
+    let mut buf = html_head("Архивный отключённый ключ");
     buf.push_str(&nav_bar(csrf_token));
     buf.push_str(
-        "<a class=\"back\" href=\"/?show_archived=true\">&larr; All peers</a>\n\
-         <h1>Archived disabled key</h1>\n\
+        "<a class=\"back\" href=\"/?show_archived=true\">&larr; Все пиры</a>\n\
+         <h1>Архивный отключённый ключ</h1>\n\
          <p class=\"creation-warning\" role=\"status\">The saved peer metadata and traffic history were deleted. \
          The disabled public key remains so the web service can continue removing it from the running interface.</p>\n",
     );
     buf.push_str(&format!(
         "<table>\n\
-         <tr><th>Public key</th><td><code>{}</code></td></tr>\n\
+         <tr><th>Публичный ключ</th><td><code>{}</code></td></tr>\n\
          <tr><th>State</th><td><span style=\"color:red\">&#x25CF; archived and disabled</span></td></tr>\n\
          <tr><th>Originally recorded</th><td>{}</td></tr>\n\
          <tr><th>Last changed</th><td>{}</td></tr>\n\
@@ -4374,7 +4405,7 @@ fn render_archived_peer_detail(
     buf.push_str(&format!(
         r#"<div class="edit-form">
 <h2>Return key to peer list</h2>
-<p>This creates a blank, still-disabled row in the normal peer list. Deleted data and traffic history are not restored.</p>
+<p>Будет создана пустая отключённая запись в обычном списке пиров. Удалённые данные и история трафика не восстанавливаются.</p>
 <form method="POST" action="/admin/peers/{id}/restore">
   <input type="hidden" name="csrf_token" value="{csrf}">
   <button type="submit">Return key to peer list</button>
@@ -4433,14 +4464,14 @@ fn render_peer_detail_inner(
     events: &[crate::db::events::EventRow],
     error: Option<&str>,
 ) -> String {
-    let mut buf = html_head(&format!("Peer – {}", dto.name));
+    let mut buf = html_head(&format!("Пир — {}", dto.name));
     let now = Utc::now();
     buf.push_str(&nav_bar(csrf_token));
     if let Some(err) = error {
         buf.push_str(&format!("<p class=\"error\">{}</p>\n", esc(err)));
     }
     buf.push_str(&format!(
-        "<a class=\"back\" href=\"/\">&larr; All peers</a>\n\
+        "<a class=\"back\" href=\"/\">&larr; Все пиры</a>\n\
          <h1>{name}</h1>\n",
         name = esc(&dto.name)
     ));
@@ -4448,15 +4479,15 @@ fn render_peer_detail_inner(
     // Identity block
     buf.push_str("<table>\n");
     buf.push_str(&format!(
-        "<tr><th>Public key</th><td><code>{}</code></td></tr>\n",
+        "<tr><th>Публичный ключ</th><td><code>{}</code></td></tr>\n",
         esc(&dto.public_key)
     ));
     buf.push_str(&format!(
-        "<tr><th>Connection</th><td>{}</td></tr>\n",
+        "<tr><th>Соединение</th><td>{}</td></tr>\n",
         connection_badge(&dto.connection_status)
     ));
     buf.push_str(&format!(
-        "<tr><th>Identity</th><td>{}</td></tr>\n",
+        "<tr><th>Привязка</th><td>{}</td></tr>\n",
         identity_badge(&dto.identity_status)
     ));
     if dto.endpoint.is_some() {
@@ -4470,7 +4501,7 @@ fn render_peer_detail_inner(
         .map(|ts| fmt_last_handshake(ts, now))
         .unwrap_or_else(|| "never".to_string());
     buf.push_str(&format!(
-        "<tr><th>Last handshake</th><td>{}</td></tr>\n",
+        "<tr><th>Последний handshake</th><td>{}</td></tr>\n",
         esc(&handshake)
     ));
     buf.push_str(&format!(
@@ -4482,7 +4513,7 @@ fn render_peer_detail_inner(
         fmt_bytes(dto.tx_bytes)
     ));
     buf.push_str(&format!(
-        "<tr><th>Reachability</th><td><button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Check</button></td></tr>\n",
+        "<tr><th>Доступность</th><td><button type=\"button\" class=\"peer-ping\" data-ping-url=\"/api/peers/{}/ping\" onclick=\"peerPingOne(this)\">Проверить</button></td></tr>\n",
         dto.id
     ));
     if let Some(vpn_ip) = peer_vpn_ip(&dto.allowed_ips) {
@@ -4492,42 +4523,45 @@ fn render_peer_detail_inner(
         ));
     }
     buf.push_str(&format!(
-        "<tr><th>Server peer AllowedIPs</th><td>{}</td></tr>\n",
+        "<tr><th>AllowedIPs на сервере</th><td>{}</td></tr>\n",
         esc(&dto.allowed_ips)
     ));
     if let Some(ref cn) = dto.config_name {
         buf.push_str(&format!(
-            "<tr><th>Config name</th><td>{}</td></tr>\n",
+            "<tr><th>Имя конфигурации</th><td>{}</td></tr>\n",
             esc(cn)
         ));
     }
     if let Some(ref cp) = dto.config_path {
         buf.push_str(&format!(
-            "<tr><th>Config path</th><td><code>{}</code></td></tr>\n",
+            "<tr><th>Путь конфигурации</th><td><code>{}</code></td></tr>\n",
             esc(cp)
         ));
     }
     if dto.has_config {
         buf.push_str(&format!(
-            "<tr><th>Config</th><td>\
-             <a href=\"/api/peers/{id}/config\">&#x2B73; Download</a>\
+            "<tr><th>Конфигурация</th><td>\
+             <a href=\"/api/peers/{id}/config\">&#x2B73; Скачать</a>\
              &nbsp; | &nbsp;\
-             <button type=\"button\" class=\"qr-link\" onclick=\"showQr({id})\">&#x25A3; QR Code</button>\
+             <button type=\"button\" class=\"qr-link\" onclick=\"showQr({id})\">&#x25A3; QR-код</button>\
              </td></tr>\n",
             id = dto.id
         ));
     }
     if let Some(ref dn) = dto.display_name {
         buf.push_str(&format!(
-            "<tr><th>Display name</th><td>{}</td></tr>\n",
+            "<tr><th>Отображаемое имя</th><td>{}</td></tr>\n",
             esc(dn)
         ));
     }
     if let Some(ref cm) = dto.comment {
-        buf.push_str(&format!("<tr><th>Comment</th><td>{}</td></tr>\n", esc(cm)));
+        buf.push_str(&format!(
+            "<tr><th>Комментарий</th><td>{}</td></tr>\n",
+            esc(cm)
+        ));
     }
     buf.push_str(&format!(
-        "<tr><th>Expiration</th><td>{}</td></tr>\n",
+        "<tr><th>Срок действия</th><td>{}</td></tr>\n",
         render_expiration_cell(&dto.expiration_status, dto.expires_at, dto.expired)
     ));
     buf.push_str("</table>\n");
@@ -4538,32 +4572,32 @@ fn render_peer_detail_inner(
     let current_comment = dto.comment.as_deref().unwrap_or("");
     buf.push_str(&format!(
         r#"<div class="edit-form">
-<h2>Edit peer</h2>
+<h2>Редактирование пира</h2>
 <form method="POST" action="/peers/{id}">
   <input type="hidden" name="csrf_token" value="{csrf}">
-  <label for="display_name">Display name</label>
+  <label for="display_name">Отображаемое имя</label>
   <input type="text" id="display_name" name="display_name"
          value="{dn}" maxlength="128" placeholder="e.g. Ivan iPhone">
-  <label for="comment">Comment</label>
+  <label for="comment">Комментарий</label>
   <textarea id="comment" name="comment" maxlength="512"
-            placeholder="Optional note about this peer">{cm}</textarea>
-  <label for="expiration_days">Change lifetime in days</label>
+            placeholder="Примечание об этом пире">{cm}</textarea>
+  <label for="expiration_days">Изменить срок действия, дней</label>
   <input type="number" id="expiration_days" name="expiration_days"
          min="0" max="36500" step="1" list="edit_expiration_lifetime_presets"
-         placeholder="Leave unchanged">
+         placeholder="Не изменять">
   <datalist id="edit_expiration_lifetime_presets">
-    <option value="0" label="Never expires"></option>
+    <option value="0" label="Бессрочно"></option>
     <option value="1" label="1 day from now"></option>
     <option value="7" label="7 days from now"></option>
     <option value="30" label="30 days from now"></option>
     <option value="90" label="90 days from now"></option>
     <option value="365" label="1 year from now"></option>
   </datalist>
-  <p class="meta" style="margin-top:.25rem">Current: {expiration_status}. Leave blank to keep it, use 0 for permanent, or enter a new lifetime from now.</p>
+  <p class="meta" style="margin-top:.25rem">Текущее значение: {expiration_status}. Оставьте пустым, чтобы не менять; 0 — бессрочно; либо укажите новый срок.</p>
   <label style="margin-top:.75rem;display:flex;align-items:center;gap:.4rem;font-weight:bold">
-    <input type="checkbox" name="disabled" value="1"{disabled_checked}> Disabled
+    <input type="checkbox" name="disabled" value="1"{disabled_checked}> Отключён
   </label>
-  <button type="submit">Save</button>
+  <button type="submit">Сохранить</button>
 </form>
 </div>
 "#,
@@ -4581,7 +4615,7 @@ fn render_peer_detail_inner(
     if dto.disabled && !dto.has_config && !dto.sync_pending {
         buf.push_str(&format!(
             r#"<div class="edit-form" style="margin-top:1.5rem;border-color:#c00">
-<h2 style="color:#c00">Forget old peer data</h2>
+<h2 style="color:#c00">Удалить старые данные пира</h2>
 <p>This removes the peer from the normal list and permanently deletes its saved name, comment, endpoint, counters, and traffic history from the panel database.
 AmneziaWG configuration files are not changed. The panel keeps a minimal disabled-key record, including the public key and record timestamps, so the web service can continue blocking it and removing it from the running interface.
 Audit-log entries are retained and may still contain earlier values.</p>
@@ -4589,9 +4623,9 @@ Audit-log entries are retained and may still contain earlier values.</p>
   <input type="hidden" name="csrf_token" value="{csrf}">
   <label for="confirm_forget" style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
     <input type="checkbox" id="confirm_forget" name="confirm" value="yes" required>
-    I understand that the saved peer metadata and traffic history will be permanently deleted.
+    Я понимаю that the saved peer metadata and traffic history will be permanently deleted.
   </label>
-  <button type="submit" style="background:#c00;margin-top:.5rem">Forget old peer data</button>
+  <button type="submit" style="background:#c00;margin-top:.5rem">Удалить старые данные пира</button>
 </form>
 </div>
 "#,
@@ -4605,17 +4639,17 @@ Audit-log entries are retained and may still contain earlier values.</p>
     if let Some(ref managed_name) = dto.managed_client_name {
         buf.push_str(&format!(
             r#"<div class="edit-form" style="margin-top:1.5rem;border-color:#c00">
-<h2 style="color:#c00">Remove user</h2>
+<h2 style="color:#c00">Удалить пользователя</h2>
 <p>This will permanently revoke the client <strong>{name}</strong> and delete its config file.
 Historical data (snapshots, events) will be preserved.</p>
 <form method="POST" action="/admin/users/{id}/remove">
   <input type="hidden" name="csrf_token" value="{csrf}">
   <label for="confirm_remove" style="display:flex;align-items:center;gap:.4rem;margin-top:.5rem">
     <input type="checkbox" id="confirm_remove" name="confirm" value="yes" required>
-    I understand this action will permanently remove this user and cannot be undone.
+    Я понимаю this action will permanently remove this user and cannot be undone.
   </label>
   <button type="submit" style="background:#c00;margin-top:.5rem">
-    Remove user
+    Удалить пользователя
   </button>
 </form>
 </div>
@@ -4626,14 +4660,14 @@ Historical data (snapshots, events) will be preserved.</p>
         ));
     }
 
-    // Traffic usage summary
-    buf.push_str("<h2>Traffic usage</h2>\n");
+    // Использование трафика summary
+    buf.push_str("<h2>Использование трафика</h2>\n");
     buf.push_str(
         "<p class=\"meta\">Aggregated bandwidth consumed per period (counter-reset safe).</p>\n",
     );
     buf.push_str(
         "<table>\n\
-         <tr><th>Period</th><th>RX</th><th>TX</th><th>JSON</th></tr>\n",
+         <tr><th>Период</th><th>RX</th><th>TX</th><th>JSON</th></tr>\n",
     );
     for (label, param) in &[("Day", "day"), ("Week", "week"), ("Month", "month")] {
         buf.push_str(&format!(
@@ -5052,10 +5086,10 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
 
-        // The proxy-session table (after the "Active proxy sessions" heading)
+        // The proxy-session table (after the "Активные прокси-сессии" heading)
         // must link the session to the peer's detail page.
         let proxy_section = html
-            .split("Active proxy sessions")
+            .split("Активные прокси-сессии")
             .nth(1)
             .expect("proxy session section rendered");
         assert!(
@@ -5178,7 +5212,7 @@ mod tests {
         // address with a proxy pill; the interface endpoint moves into the
         // tooltip.
         let peers_section = html
-            .split("Active proxy sessions")
+            .split("Активные прокси-сессии")
             .next()
             .expect("peer table rendered");
         assert!(
@@ -5240,7 +5274,7 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
 
-        assert!(html.contains("Active proxy sessions"));
+        assert!(html.contains("Активные прокси-сессии"));
         assert!(html.contains("203.0.113.10:45678"));
         assert!(html.contains("/api/proxy/sessions"));
         assert!(html.contains("dns"));
@@ -5389,7 +5423,7 @@ mod tests {
         assert!(json["statistics_note"]
             .as_str()
             .unwrap()
-            .contains("counters"));
+            .contains("Счётчики"));
     }
 
     #[tokio::test]
@@ -5405,11 +5439,11 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("System uptime:"));
-        assert!(html.contains("System boot time:"));
-        assert!(html.contains("aria-label=\"System status\""));
-        assert!(html.contains("interface counters"));
-        assert!(html.contains("Traffic period: since boot/interface restart"));
+        assert!(html.contains("Время работы системы:"));
+        assert!(html.contains("Время загрузки системы:"));
+        assert!(html.contains("aria-label=\"Состояние системы\""));
+        assert!(html.contains("Счётчики трафика"));
+        assert!(html.contains("Трафик: с загрузки/перезапуска интерфейса"));
     }
 
     #[tokio::test]
@@ -5439,13 +5473,13 @@ mod tests {
         let html = std::str::from_utf8(&body).unwrap();
         let expected = fmt_local_timestamp(Utc.timestamp_opt(handshake_ts, 0).single().unwrap());
         assert!(html.contains(&expected));
-        assert!(html.contains("ago - "));
+        assert!(html.contains("назад - "));
     }
 
     #[test]
     fn fmt_duration_hms_singularizes_day() {
-        assert_eq!(fmt_duration_hms(86_400), "1 day 00:00:00");
-        assert_eq!(fmt_duration_hms(172_800), "2 days 00:00:00");
+        assert_eq!(fmt_duration_hms(86_400), "1 д 00:00:00");
+        assert_eq!(fmt_duration_hms(172_800), "2 д 00:00:00");
         assert_eq!(fmt_duration_hms(3_725), "01:02:05");
     }
 
@@ -5462,26 +5496,26 @@ mod tests {
         assert!(expiration_from_days(-1, now).is_err());
         assert!(expiration_from_days(MAX_EXPIRATION_DAYS + 1, now).is_err());
 
-        assert_eq!(format_expiration_status(None, now), "Never expires");
+        assert_eq!(format_expiration_status(None, now), "Бессрочно");
         assert_eq!(
             format_expiration_status(Some(now + chrono::Duration::seconds(30)), now),
-            "Expires in 1 minute"
+            "Осталось 1 мин"
         );
         assert_eq!(
             format_expiration_status(Some(now + chrono::Duration::hours(6)), now),
-            "Expires in 6 hours"
+            "Осталось 6 ч"
         );
         assert_eq!(
             format_expiration_status(Some(now + chrono::Duration::days(6)), now),
-            "Expires in 6 days"
+            "Осталось 6 дн"
         );
         assert_eq!(
             format_expiration_status(Some(now + chrono::Duration::days(90)), now),
-            "Expires on 9 Nov 2026"
+            "До 09.11.2026"
         );
         assert_eq!(
             format_expiration_status(Some(now - chrono::Duration::seconds(1)), now),
-            "Expired"
+            "Истёк"
         );
     }
 
@@ -6199,7 +6233,7 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(html.contains("Charlie"));
-        assert!(html.contains("<th>Comment</th>"));
+        assert!(html.contains("<th>Комментарий</th>"));
         assert!(html.contains("Phone &lt;primary&gt; &amp; travel"));
         assert!(!html.contains("Phone <primary> & travel"));
         // The peer LIST shows names, not raw public keys.  Verify the public key
@@ -6245,7 +6279,7 @@ mod tests {
         let html = std::str::from_utf8(&body).unwrap();
         assert!(html.contains("Diana"));
         assert!(html.starts_with("<!DOCTYPE html>"));
-        assert!(html.contains("Traffic usage"));
+        assert!(html.contains("Использование трафика"));
         assert!(html.contains("/api/peers/"));
         assert!(html.contains("usage?period="));
         assert!(html.contains("usage/summary"));
@@ -6343,7 +6377,7 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["expires_at"].as_str().is_some());
-        assert_eq!(json["expiration_status"], "Expires in 7 days");
+        assert_eq!(json["expiration_status"], "Осталось 7 дн");
         let row = crate::db::peers::find_by_id(&db.pool, id)
             .await
             .unwrap()
@@ -6392,7 +6426,7 @@ mod tests {
             .unwrap();
         let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert!(json["expires_at"].is_null());
-        assert_eq!(json["expiration_status"], "Never expires");
+        assert_eq!(json["expiration_status"], "Бессрочно");
         let row = crate::db::peers::find_by_id(&db.pool, id)
             .await
             .unwrap()
@@ -6794,7 +6828,7 @@ mod tests {
         assert!(html.contains("name=\"display_name\""));
         assert!(html.contains("name=\"comment\""));
         assert!(html.contains("name=\"expiration_days\""));
-        assert!(html.contains("Current: Never expires"));
+        assert!(html.contains("Текущее значение: Бессрочно"));
         // Existing name must be pre-filled
         assert!(html.contains("Editable"));
     }
@@ -6864,13 +6898,13 @@ mod tests {
         assert!(html.contains(r#"name="username""#));
         assert!(html.contains(r#"name="password""#));
         assert!(html.contains(r#"name="csrf_token" value="test_csrf_token""#));
-        assert!(!html.contains("Invalid username"));
+        assert!(!html.contains("Неверное имя пользователя"));
     }
 
     #[test]
     fn login_page_shows_error() {
         let html = render_login_page(true, "tok");
-        assert!(html.contains("Invalid username or password"));
+        assert!(html.contains("Неверное имя пользователя или пароль"));
     }
 
     #[test]
@@ -7010,7 +7044,7 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Invalid username or password"));
+        assert!(html.contains("Неверное имя пользователя или пароль"));
     }
 
     #[tokio::test]
@@ -7953,7 +7987,7 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Forget old peer data"));
+        assert!(html.contains("Удалить старые данные пира"));
         assert!(html.contains(&format!("/admin/peers/{id}/archive")));
         assert!(html.contains("Audit-log entries are retained"));
         assert!(html.contains("name=\"confirm\""));
@@ -8009,7 +8043,7 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Show archived keys"));
+        assert!(html.contains("Показать архивные ключи"));
         assert!(!html.contains(&format!("/archived/peers/{id}")));
 
         let response = app
@@ -8026,7 +8060,7 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Hide archived keys"));
+        assert!(html.contains("Скрыть архивные ключи"));
         assert!(html.contains(&format!("/archived/peers/{id}")));
         assert!(html.contains("archived"));
 
@@ -8044,9 +8078,9 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Archived disabled key"));
+        assert!(html.contains("Архивный отключённый ключ"));
         assert!(html.contains("Return key to peer list"));
-        assert!(!html.contains("Download"));
+        assert!(!html.contains("Скачать"));
         assert!(!html.contains("JSON history"));
     }
 
@@ -8318,7 +8352,7 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(html.contains(&format!("/api/peers/{id}/config")));
-        assert!(html.contains("Download"));
+        assert!(html.contains("Скачать"));
     }
 
     // ── User lifecycle UI tests ──────────────────────────────────────────
@@ -8329,7 +8363,7 @@ mod tests {
         assert!(html.contains("/admin/protocol/enable-awg3"));
         assert!(html.contains("/admin/protocol/enable-awg31"));
         assert!(html.contains("/admin/protocol/disable-awg3"));
-        assert!(html.contains("Enable AWG 3.0"));
+        assert!(html.contains("Включить AWG 3.0"));
         assert!(html.contains("Switch to AWG 3.0"));
         assert!(html.contains("name=\"confirm\" value=\"yes\" required"));
         assert!(html.contains("name=\"csrf_token\" value=\"protocol-csrf\""));
@@ -8339,7 +8373,7 @@ mod tests {
 
     #[test]
     fn protocol_panel_styling_separates_adjacent_visible_sections() {
-        let head = html_head("AmneziaWG – Peers");
+        let head = html_head("AmneziaWG — Пиры");
         assert!(head.contains(
             ".protocol-panel section:not([hidden]) ~ section:not([hidden]) { margin-top: 1.5rem; }"
         ));
@@ -8381,7 +8415,7 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(
-            html.contains("Add user"),
+            html.contains("Добавить пользователя"),
             "peer list page should contain 'Add user' form"
         );
         assert!(
@@ -8405,14 +8439,14 @@ mod tests {
             "comment input should expose the server-side length limit"
         );
         assert!(html.contains("name=\"expiration_days\""));
-        assert!(html.contains("Never expires"));
+        assert!(html.contains("Бессрочно"));
         assert!(html.contains("value=\"7\""));
         assert!(html.contains("value=\"30\""));
         let comment_position = html
             .find("id=\"add_user_comment\"")
             .expect("comment field position");
         let button_position = html
-            .find("<button type=\"submit\">Add user</button>")
+            .find("<button type=\"submit\">Добавить пользователя</button>")
             .expect("Add user button position");
         assert!(
             comment_position < button_position,
@@ -8450,8 +8484,8 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(
-            html.contains("Remove user"),
-            "detail page should contain 'Remove user' when config is linked"
+            html.contains("Удалить пользователя"),
+            "detail page should contain 'Удалить пользователя' when config is linked"
         );
         assert!(
             html.contains(&format!("/admin/users/{id}/remove")),
@@ -8483,8 +8517,8 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(
-            !html.contains("Remove user"),
-            "detail page should NOT show 'Remove user' when config is not linked"
+            !html.contains("Удалить пользователя"),
+            "detail page should NOT show 'Удалить пользователя' when config is not linked"
         );
     }
 
@@ -8516,7 +8550,7 @@ mod tests {
             .await
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
-        assert!(html.contains("Remove user"));
+        assert!(html.contains("Удалить пользователя"));
         assert!(html.contains("retry-user"));
         assert!(html.contains(&format!("/admin/users/{id}/remove")));
     }
@@ -8551,8 +8585,8 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(
-            !html.contains("Remove user"),
-            "detail page should NOT show 'Remove user' when friendly_name fails installer validation"
+            !html.contains("Удалить пользователя"),
+            "detail page should NOT show 'Удалить пользователя' when friendly_name fails installer validation"
         );
     }
 
@@ -8661,10 +8695,10 @@ mod tests {
             .unwrap();
         let html = std::str::from_utf8(&body).unwrap();
         assert!(
-            html.contains("Add user failed: Failed to create user"),
+            html.contains("Не удалось добавить пользователя: Failed to create user"),
             "HTML should include a diagnostic add-user error message, got: {html}"
         );
-        assert!(!html.contains("Add user failed: internal server error"));
+        assert!(!html.contains("Не удалось добавить пользователя: internal server error"));
     }
 
     #[tokio::test]
@@ -8825,7 +8859,7 @@ mod tests {
             .unwrap();
         let peers: serde_json::Value = serde_json::from_slice(&list_body).unwrap();
         assert_eq!(peers[0]["comment"], "Primary <phone> & tablet");
-        assert_eq!(peers[0]["expiration_status"], "Expires in 7 days");
+        assert_eq!(peers[0]["expiration_status"], "Осталось 7 дн");
         assert_eq!(peers[0]["expired"], false);
 
         for _ in 0..2 {
@@ -8838,9 +8872,9 @@ mod tests {
                 .await
                 .unwrap();
             let html = std::str::from_utf8(&page_body).unwrap();
-            assert!(html.contains("<th>Comment</th>"));
-            assert!(html.contains("<th>Expiration</th>"));
-            assert!(html.contains("Expires in 7 days"));
+            assert!(html.contains("<th>Комментарий</th>"));
+            assert!(html.contains("<th>Срок действия</th>"));
+            assert!(html.contains("Осталось 7 дн"));
             assert!(html.contains("Primary &lt;phone&gt; &amp; tablet"));
             assert!(!html.contains("Primary <phone> & tablet"));
         }
@@ -9001,7 +9035,7 @@ mod tests {
 
     #[tokio::test]
     async fn api_create_user_works_without_ip_fields() {
-        // Backward compatibility: omitting IP fields still works.
+        // Назадward compatibility: omitting IP fields still works.
         let app = test_router(test_db().await);
         let response = app
             .oneshot(
